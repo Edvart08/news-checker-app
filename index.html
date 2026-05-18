@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>NewsChecker</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        :root {
+            --accent: #3B82F6;
+            --accent-glow: rgba(59,130,246,0.25);
+            --success: #22C55E;
+            --danger: #EF4444;
+            --warning: #F59E0B;
+            --bg: var(--tg-theme-bg-color, #0f0f13);
+            --bg2: var(--tg-theme-secondary-bg-color, #1a1a24);
+            --text: var(--tg-theme-text-color, #f0f0f5);
+            --hint: var(--tg-theme-hint-color, #8888aa);
+            --btn: var(--tg-theme-button-color, #3B82F6);
+            --btn-text: var(--tg-theme-button-text-color, #ffffff);
+            --radius: 16px;
+            --transition: 0.35s cubic-bezier(.4,0,.2,1);
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            padding: 16px;
+            overflow-x: hidden;
+        }
+
+        /* ── Header ── */
+        .header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        .header-icon {
+            width: 40px; height: 40px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #3B82F6, #8B5CF6);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 20px;
+            flex-shrink: 0;
+            box-shadow: 0 0 18px rgba(139,92,246,.4);
+        }
+        .header-title { font-size: 18px; font-weight: 700; letter-spacing: -.3px; }
+        .header-sub { font-size: 11px; color: var(--hint); margin-top: 1px; }
+
+        /* ── Card ── */
+        .card {
+            background: var(--bg2);
+            border-radius: var(--radius);
+            padding: 16px;
+            margin-bottom: 14px;
+            border: 1px solid rgba(255,255,255,.06);
+            box-shadow: 0 4px 24px rgba(0,0,0,.25);
+        }
+
+        /* ── Textarea ── */
+        .input-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--hint);
+            text-transform: uppercase;
+            letter-spacing: .8px;
+            margin-bottom: 8px;
+        }
+        textarea {
+            width: 100%;
+            height: 130px;
+            background: rgba(255,255,255,.04);
+            border: 1.5px solid rgba(255,255,255,.09);
+            border-radius: 12px;
+            color: var(--text);
+            padding: 12px 14px;
+            font-size: 14px;
+            font-family: inherit;
+            resize: none;
+            outline: none;
+            transition: border-color var(--transition), box-shadow var(--transition);
+        }
+        textarea:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+        textarea::placeholder { color: var(--hint); }
+
+        .char-count {
+            font-size: 11px;
+            color: var(--hint);
+            text-align: right;
+            margin-top: 5px;
+        }
+        .char-count.warn { color: var(--warning); }
+
+        /* ── Button ── */
+        .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, var(--btn), #8B5CF6);
+            color: var(--btn-text);
+            border: none;
+            border-radius: 12px;
+            font-weight: 700;
+            font-size: 15px;
+            cursor: pointer;
+            margin-top: 12px;
+            transition: opacity var(--transition), transform var(--transition), box-shadow var(--transition);
+            box-shadow: 0 4px 20px rgba(59,130,246,.35);
+            position: relative;
+            overflow: hidden;
+        }
+        .btn::after {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(rgba(255,255,255,.12), transparent);
+            border-radius: inherit;
+        }
+        .btn:active { transform: scale(.97); opacity: .9; }
+        .btn:disabled { opacity: .5; cursor: not-allowed; transform: none; }
+        .btn-icon { font-size: 16px; }
+
+        /* ── Loading ── */
+        .loading-card {
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            padding: 28px 16px;
+            gap: 14px;
+        }
+        .spinner {
+            width: 48px; height: 48px;
+            border: 3px solid rgba(255,255,255,.08);
+            border-top-color: var(--accent);
+            border-radius: 50%;
+            animation: spin .8s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading-text { font-size: 14px; color: var(--hint); }
+        .loading-dots::after {
+            content: '';
+            animation: dots 1.4s steps(4,end) infinite;
+        }
+        @keyframes dots {
+            0%  { content: ''; }
+            25% { content: '.'; }
+            50% { content: '..'; }
+            75% { content: '...'; }
+        }
+
+        /* ── Result ── */
+        .result-card { display: none; flex-direction: column; gap: 18px; }
+
+        /* Verdict badge */
+        .verdict-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        .verdict-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            border-radius: 999px;
+            font-weight: 700;
+            font-size: 13px;
+            letter-spacing: .3px;
+        }
+        .verdict-badge.real  { background: rgba(34,197,94,.15);  color: var(--success); border: 1px solid rgba(34,197,94,.3);  }
+        .verdict-badge.fake  { background: rgba(239,68,68,.15);  color: var(--danger);  border: 1px solid rgba(239,68,68,.3);  }
+        .verdict-badge.unsure{ background: rgba(245,158,11,.15); color: var(--warning); border: 1px solid rgba(245,158,11,.3); }
+
+        /* Circular gauge */
+        .gauge-wrap {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+        }
+        .gauge-svg { transform: rotate(-90deg); }
+        .gauge-track { fill: none; stroke: rgba(255,255,255,.07); }
+        .gauge-fill  { fill: none; stroke-linecap: round; transition: stroke-dashoffset 1.2s cubic-bezier(.4,0,.2,1), stroke 1s ease; }
+        .gauge-center {
+            position: absolute;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            inset: 0;
+        }
+        .gauge-container { position: relative; width: 120px; height: 120px; display: flex; align-items: center; justify-content: center; }
+        .gauge-pct { font-size: 26px; font-weight: 800; letter-spacing: -1px; }
+        .gauge-label-sm { font-size: 10px; color: var(--hint); text-transform: uppercase; letter-spacing: .5px; }
+
+        /* Bar */
+        .bar-section { width: 100%; }
+        .bar-label-row { display: flex; justify-content: space-between; font-size: 12px; color: var(--hint); margin-bottom: 6px; }
+        .bar-track {
+            width: 100%; height: 8px;
+            background: rgba(255,255,255,.07);
+            border-radius: 999px;
+            overflow: hidden;
+        }
+        .bar-fill {
+            height: 100%;
+            border-radius: 999px;
+            width: 0;
+            transition: width 1.1s cubic-bezier(.4,0,.2,1);
+        }
+
+        /* Detail chips */
+        .chips { display: flex; flex-wrap: wrap; gap: 7px; }
+        .chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 5px 11px;
+            border-radius: 999px;
+            font-size: 12px;
+            font-weight: 500;
+            background: rgba(255,255,255,.06);
+            border: 1px solid rgba(255,255,255,.09);
+            color: var(--hint);
+        }
+
+        /* Analysis text */
+        .analysis-text {
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--text);
+            background: rgba(255,255,255,.03);
+            border-radius: 10px;
+            padding: 12px 14px;
+            border-left: 3px solid var(--accent);
+        }
+
+        /* Reset button */
+        .btn-secondary {
+            background: rgba(255,255,255,.07);
+            box-shadow: none;
+            color: var(--text);
+            margin-top: 0;
+        }
+        .btn-secondary::after { display: none; }
+
+        /* Send button */
+        .btn-send {
+            background: linear-gradient(135deg, #22C55E, #16A34A);
+            box-shadow: 0 4px 20px rgba(34,197,94,.3);
+        }
+
+        /* Divider */
+        .divider {
+            height: 1px;
+            background: rgba(255,255,255,.06);
+            border-radius: 1px;
+        }
+
+        /* Animations */
+        .fade-in { animation: fadeIn .4s ease both; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+        /* Section title */
+        .section-title {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--hint);
+            text-transform: uppercase;
+            letter-spacing: .9px;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="header">
+        <div class="header-icon">🔎</div>
+        <div>
+            <div class="header-title">NewsChecker</div>
+            <div class="header-sub">AI-верификация новостей</div>
+        </div>
+    </div>
+
+    <!-- Input card -->
+    <div class="card" id="inputCard">
+        <div class="input-label">Текст новости</div>
+        <textarea id="newsText" placeholder="Вставьте текст новости для проверки…" maxlength="3000"></textarea>
+        <div class="char-count" id="charCount">0 / 3000</div>
+        <button class="btn" id="checkBtn">
+            <span class="btn-icon">✦</span> Проверить новость
+        </button>
+    </div>
+
+    <!-- Loading card -->
+    <div class="card loading-card" id="loadingCard">
+        <div class="spinner"></div>
+        <div class="loading-text">Анализирую новость<span class="loading-dots"></span></div>
+    </div>
+
+    <!-- Result card -->
+    <div class="card result-card" id="resultCard">
+        <!-- Top row: verdict + gauge -->
+        <div class="verdict-row">
+            <div>
+                <div class="section-title">Вердикт</div>
+                <div class="verdict-badge" id="verdictBadge"></div>
+            </div>
+            <div class="gauge-container">
+                <svg class="gauge-svg" width="120" height="120" viewBox="0 0 120 120">
+                    <circle class="gauge-track" cx="60" cy="60" r="50" stroke-width="9"/>
+                    <circle class="gauge-fill" id="gaugeFill" cx="60" cy="60" r="50" stroke-width="9"
+                            stroke-dasharray="314" stroke-dashoffset="314"/>
+                </svg>
+                <div class="gauge-center">
+                    <div class="gauge-pct" id="gaugePct">0%</div>
+                    <div class="gauge-label-sm">достов.</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Bars -->
+        <div>
+            <div class="section-title">Детальный анализ</div>
+            <div style="display:flex; flex-direction:column; gap:10px;">
+                <div class="bar-section">
+                    <div class="bar-label-row"><span>Достоверность</span><span id="barPct1">0%</span></div>
+                    <div class="bar-track"><div class="bar-fill" id="bar1" style="background:var(--success)"></div></div>
+                </div>
+                <div class="bar-section">
+                    <div class="bar-label-row"><span>Риск манипуляции</span><span id="barPct2">0%</span></div>
+                    <div class="bar-track"><div class="bar-fill" id="bar2" style="background:var(--danger)"></div></div>
+                </div>
+                <div class="bar-section">
+                    <div class="bar-label-row"><span>Эмоциональный накал</span><span id="barPct3">0%</span></div>
+                    <div class="bar-track"><div class="bar-fill" id="bar3" style="background:var(--warning)"></div></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Tags -->
+        <div>
+            <div class="section-title">Сигналы</div>
+            <div class="chips" id="chipsRow"></div>
+        </div>
+
+        <div class="divider"></div>
+
+        <!-- Analysis summary -->
+        <div>
+            <div class="section-title">Краткий анализ</div>
+            <div class="analysis-text" id="analysisText"></div>
+        </div>
+
+        <!-- Action buttons -->
+        <div style="display:flex; flex-direction:column; gap:8px; margin-top:4px;">
+            <button class="btn btn-send" id="sendBtn">
+                <span class="btn-icon">📤</span> Отправить результат в бот
+            </button>
+            <button class="btn btn-secondary" id="resetBtn">
+                ↩ Проверить другую новость
+            </button>
+        </div>
+    </div>
+
+<script>
+    const tg = window.Telegram.WebApp;
+    tg.expand();
+    tg.disableVerticalSwipes?.();
+
+    const newsText   = document.getElementById('newsText');
+    const charCount  = document.getElementById('charCount');
+    const checkBtn   = document.getElementById('checkBtn');
+    const inputCard  = document.getElementById('inputCard');
+    const loadingCard= document.getElementById('loadingCard');
+    const resultCard = document.getElementById('resultCard');
+    const sendBtn    = document.getElementById('sendBtn');
+    const resetBtn   = document.getElementById('resetBtn');
+
+    let lastText = '';
+    let lastResult = null;
+
+    // ── Char counter ──
+    newsText.addEventListener('input', () => {
+        const len = newsText.value.length;
+        charCount.textContent = `${len} / 3000`;
+        charCount.classList.toggle('warn', len > 2700);
+    });
+
+    // ── Show / hide sections ──
+    function showSection(section) {
+        [inputCard, loadingCard, resultCard].forEach(el => {
+            el.style.display = 'none';
+            el.style.flexDirection = '';
+        });
+        section.style.display = 'flex';
+        section.style.flexDirection = 'column';
+        if (section !== loadingCard) section.classList.add('fade-in');
+    }
+
+    // ── Analyse button ──
+    checkBtn.addEventListener('click', () => {
+        const text = newsText.value.trim();
+        if (text.length < 25) {
+            tg.showAlert?.('Текст слишком короткий. Вставьте не менее 25 символов.');
+            newsText.focus();
+            return;
+        }
+        lastText = text;
+        runAnalysis(text);
+    });
+
+    // ── Reset ──
+    resetBtn.addEventListener('click', () => {
+        lastResult = null;
+        showSection(inputCard);
+    });
+
+    // ── Send to bot ──
+    sendBtn.addEventListener('click', () => {
+        if (!lastResult) return;
+        const payload = JSON.stringify({
+            text: lastText.slice(0, 300),
+            verdict: lastResult.verdict,
+            confidence: lastResult.confidence
+        });
+        tg.sendData(payload);
+        tg.close();
+    });
+
+    // ── Analysis engine ──
+    function runAnalysis(text) {
+        showSection(loadingCard);
+
+        // Simulate async analysis (replace fetch() call here for real backend)
+        setTimeout(() => {
+            lastResult = analyzeText(text);
+            renderResult(lastResult);
+            showSection(resultCard);
+        }, 1800 + Math.random() * 600);
+    }
+
+    // ── Heuristic analysis (client-side demo; replace with real API call) ──
+    function analyzeText(text) {
+        const t = text.toLowerCase();
+        const len = text.length;
+
+        // Manipulation signals
+        const alarmWords  = ['сенсация','срочно','внимание','шок','скандал','разоблачение','эксклюзив','всё раскрыто','правда которую','скрывают'];
+        const fakeWords   = ['анонимный источник','по слухам','якобы','непроверенная информация','говорят что','ходят слухи'];
+        const emotWords   = ['!!!','????','невероятно','ужас','катастрофа','конец','страшно','невозможно','ложь'];
+        const positiveW   = ['официально','по данным','согласно','эксперты','исследование','статистика','подтверждено'];
+
+        const alarmScore  = countMatches(t, alarmWords);
+        const fakeScore   = countMatches(t, fakeWords);
+        const emotScore   = countMatches(t, emotWords) + (text.split('!').length - 1) * 0.5;
+        const positiveScore = countMatches(t, positiveW);
+
+        // Raw manipulation score [0..1]
+        const manipRaw = Math.min(1, (alarmScore * 0.15 + fakeScore * 0.2 + emotScore * 0.08));
+        // Credibility [0..1]
+        const credRaw  = Math.max(0, Math.min(1, 0.55 + positiveScore * 0.08 - manipRaw * 0.6 + (len > 300 ? 0.1 : 0)));
+        // Emotion [0..1]
+        const emotRaw  = Math.min(1, emotScore * 0.12 + manipRaw * 0.3);
+
+        const confidence = Math.round(credRaw * 100);
+        const manip      = Math.round(manipRaw * 100);
+        const emotion    = Math.round(emotRaw * 100);
+
+        // Signals / chips
+        const signals = [];
+        if (alarmScore > 0)    signals.push({ icon: '⚠️', label: 'Кликбейт' });
+        if (fakeScore > 0)     signals.push({ icon: '🕵️', label: 'Анонимные источники' });
+        if (emotScore > 2)     signals.push({ icon: '🔥', label: 'Высокий эмоциональный накал' });
+        if (positiveScore > 0) signals.push({ icon: '📊', label: 'Есть ссылки на данные' });
+        if (len > 500)         signals.push({ icon: '📝', label: 'Развёрнутый текст' });
+        if (signals.length === 0) signals.push({ icon: '✅', label: 'Нет явных манипуляций' });
+
+        // Verdict
+        let verdict, verdictLabel, verdictIcon;
+        if (confidence >= 65) {
+            verdict = 'real';  verdictLabel = 'Вероятно правда'; verdictIcon = '✅';
+        } else if (confidence <= 35) {
+            verdict = 'fake';  verdictLabel = 'Вероятно фейк';   verdictIcon = '❌';
+        } else {
+            verdict = 'unsure'; verdictLabel = 'Требует проверки'; verdictIcon = '⚠️';
+        }
+
+        // Analysis text
+        const summaries = {
+            real:   `Текст содержит относительно нейтральную подачу и ${positiveScore > 0 ? 'ссылки на источники данных' : 'умеренную эмоциональную окраску'}. Манипулятивных маркеров обнаружено мало (${manip}%). Рекомендуется всё равно проверить по первоисточникам.`,
+            fake:   `Обнаружены явные признаки манипуляции (${manip}%): кликбейтные заголовки, ${fakeScore > 0 ? 'анонимные источники,' : ''} высокий эмоциональный накал. Настоятельно рекомендуем проверить информацию в авторитетных СМИ.`,
+            unsure: `Новость содержит смешанные сигналы. Уровень манипуляции — ${manip}%, эмоциональный накал — ${emotion}%. Для окончательного вывода необходима дополнительная проверка.`,
+        };
+
+        return { verdict, verdictLabel, verdictIcon, confidence, manip, emotion, signals, summary: summaries[verdict] };
+    }
+
+    function countMatches(text, words) {
+        return words.reduce((n, w) => n + (text.includes(w) ? 1 : 0), 0);
+    }
+
+    // ── Render result ──
+    function renderResult(r) {
+        // Verdict badge
+        const badge = document.getElementById('verdictBadge');
+        badge.textContent = `${r.verdictIcon} ${r.verdictLabel}`;
+        badge.className = `verdict-badge ${r.verdict}`;
+
+        // Gauge animation
+        const circumference = 314;
+        const offset = circumference - (r.confidence / 100) * circumference;
+        const fill = document.getElementById('gaugeFill');
+        const gaugeColors = { real: '#22C55E', fake: '#EF4444', unsure: '#F59E0B' };
+        fill.style.stroke = gaugeColors[r.verdict];
+
+        const pctEl = document.getElementById('gaugePct');
+        pctEl.style.color = gaugeColors[r.verdict];
+
+        requestAnimationFrame(() => {
+            setTimeout(() => {
+                fill.style.strokeDashoffset = offset;
+                animateNumber(pctEl, 0, r.confidence, 1100, v => `${v}%`);
+            }, 80);
+        });
+
+        // Bars
+        animateBar('bar1', 'barPct1', r.confidence);
+        animateBar('bar2', 'barPct2', r.manip,   '#EF4444');
+        animateBar('bar3', 'barPct3', r.emotion, '#F59E0B');
+
+        // Chips
+        const chipsRow = document.getElementById('chipsRow');
+        chipsRow.innerHTML = r.signals.map(s =>
+            `<div class="chip"><span>${s.icon}</span><span>${s.label}</span></div>`
+        ).join('');
+
+        // Analysis text
+        document.getElementById('analysisText').textContent = r.summary;
+    }
+
+    function animateBar(barId, pctId, value, color) {
+        const bar = document.getElementById(barId);
+        const pct = document.getElementById(pctId);
+        if (color) bar.style.background = color;
+        requestAnimationFrame(() => {
+            setTimeout(() => {
+                bar.style.width = value + '%';
+                animateNumber(pct, 0, value, 1100, v => `${v}%`);
+            }, 80);
+        });
+    }
+
+    function animateNumber(el, from, to, duration, format) {
+        const start = performance.now();
+        function step(now) {
+            const t = Math.min((now - start) / duration, 1);
+            const ease = 1 - Math.pow(1 - t, 3);
+            el.textContent = format(Math.round(from + (to - from) * ease));
+            if (t < 1) requestAnimationFrame(step);
+        }
+        requestAnimationFrame(step);
+    }
+
+    // ── Handle result passed via URL params (when bot reopens app with result) ──
+    (function checkURLResult() {
+        try {
+            const params = new URLSearchParams(window.location.search);
+            const raw = params.get('result') || tg.initDataUnsafe?.start_param;
+            if (!raw) return;
+            const decoded = JSON.parse(decodeURIComponent(atob(raw)));
+            if (decoded && decoded.confidence !== undefined) {
+                lastText = decoded.text || '';
+                lastResult = decoded;
+                renderResult(decoded);
+                showSection(resultCard);
+            }
+        } catch (_) {}
+    })();
+</script>
+</body>
+</html>
