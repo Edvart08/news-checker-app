@@ -304,72 +304,7 @@
     <!-- Loading card -->
     <div class="card loading-card" id="loadingCard">
         <div class="spinner"></div>
-        <div class="loading-text">Анализирую новость<span class="loading-dots"></span></div>
-    </div>
-
-    <!-- Result card -->
-    <div class="card result-card" id="resultCard">
-        <div class="verdict-row">
-            <div>
-                <div class="section-title">Вердикт</div>
-                <div class="verdict-badge" id="verdictBadge"></div>
-            </div>
-            <div class="gauge-container">
-                <svg class="gauge-svg" width="110" height="110" viewBox="0 0 110 110">
-                    <circle class="gauge-track" cx="55" cy="55" r="46" stroke-width="8"/>
-                    <circle class="gauge-fill" id="gaugeFill" cx="55" cy="55" r="46" stroke-width="8"
-                            stroke-dasharray="289" stroke-dashoffset="289"/>
-                </svg>
-                <div class="gauge-center">
-                    <div class="gauge-pct" id="gaugePct">0%</div>
-                    <div class="gauge-label-sm">достов.</div>
-                </div>
-            </div>
-        </div>
-
-        <div class="divider"></div>
-
-        <div>
-            <div class="section-title">Детальный анализ</div>
-            <div style="display:flex;flex-direction:column;gap:10px;">
-                <div class="bar-section">
-                    <div class="bar-label-row"><span>Достоверность</span><span id="barPct1">0%</span></div>
-                    <div class="bar-track"><div class="bar-fill" id="bar1" style="background:var(--success)"></div></div>
-                </div>
-                <div class="bar-section">
-                    <div class="bar-label-row"><span>Риск манипуляции</span><span id="barPct2">0%</span></div>
-                    <div class="bar-track"><div class="bar-fill" id="bar2" style="background:var(--danger)"></div></div>
-                </div>
-                <div class="bar-section">
-                    <div class="bar-label-row"><span>Эмоциональный накал</span><span id="barPct3">0%</span></div>
-                    <div class="bar-track"><div class="bar-fill" id="bar3" style="background:var(--warning)"></div></div>
-                </div>
-            </div>
-        </div>
-
-        <div class="divider"></div>
-
-        <div>
-            <div class="section-title">Сигналы</div>
-            <div class="chips" id="chipsRow"></div>
-        </div>
-
-        <div class="divider"></div>
-
-        <div>
-            <div class="section-title">Краткий анализ</div>
-            <div class="analysis-text" id="analysisText"></div>
-        </div>
-
-        <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px;">
-            <button class="btn btn-send" id="sendBtn">
-                <span>🔍</span> Найти в реальных каналах
-            </button>
-            <div class="note">↑ Бот найдёт реальные публикации в СМИ и пришлёт ссылки в чат</div>
-            <button class="btn btn-secondary" id="resetBtn">
-                ↩ Проверить другую новость
-            </button>
-        </div>
+        <div class="loading-text" id="loadingText">Ищу в каналах<span class="loading-dots"></span></div>
     </div>
 
     <!-- Sources card (results from bot) -->
@@ -405,8 +340,6 @@
     const checkBtn      = document.getElementById('checkBtn');
     const inputCard     = document.getElementById('inputCard');
     const loadingCard   = document.getElementById('loadingCard');
-    const resultCard    = document.getElementById('resultCard');
-    const sendBtn       = document.getElementById('sendBtn');
     const resetBtn      = document.getElementById('resetBtn');
     const historyPanel  = document.getElementById('historyPanel');
     const historyToggleBtn = document.getElementById('historyToggleBtn');
@@ -432,18 +365,17 @@
     }
     function saveToHistory(text, result) {
         const history = loadHistory();
+        const top = result.top_score ?? result.confidence ?? 0;
+        const verdict = top >= 60 ? 'real' : top >= 40 ? 'unsure' : 'fake';
+        const verdictLabel = top >= 60 ? 'Подтверждено' : top >= 40 ? 'Требует проверки' : 'Не подтверждено';
         history.unshift({
             id: Date.now(),
             text: text.slice(0, 120),
             fullText: text.slice(0, 800),
-            verdict: result.verdict,
-            verdictLabel: result.verdictLabel,
-            verdictIcon: result.verdictIcon,
-            confidence: result.confidence,
-            manip: result.manip,
-            emotion: result.emotion,
-            signals: result.signals,
-            summary: result.summary,
+            verdict,
+            verdictLabel,
+            confidence: top,
+            sources: result.sources || [],
             date: new Date().toLocaleString('ru', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })
         });
         localStorage.setItem('nc_history', JSON.stringify(history.slice(0, 20)));
@@ -478,8 +410,7 @@
                 lastText = item.fullText || item.text;
                 lastResult = item;
                 toggleHistory(false);
-                renderResult(item);
-                showSection(resultCard);
+                showBotResults({ sources: item.sources || [], top_score: item.confidence });
             });
         });
     }
@@ -491,7 +422,7 @@
             historyPanel.style.display = 'flex';
             inputCard.style.display = 'none';
             loadingCard.style.display = 'none';
-            resultCard.style.display = 'none';
+            sourcesCard.style.display = 'none';
             historyToggleBtn.textContent = '✕ Закрыть';
         } else {
             historyPanel.style.display = 'none';
@@ -508,13 +439,23 @@
 
     // ── Show / hide sections ──
     function showSection(section) {
-        [inputCard, loadingCard, resultCard, historyPanel, sourcesCard].forEach(el => {
+        [inputCard, loadingCard, sourcesCard, historyPanel].forEach(el => {
             el.style.display = 'none';
         });
         section.style.display = 'flex';
         section.style.flexDirection = 'column';
         if (section !== loadingCard) section.classList.add('fade-in');
     }
+
+    // ── Read API URL from ?api= param (passed by bot) ──
+    const urlParams = new URLSearchParams(window.location.search);
+    let API_ENDPOINT = null;
+    try {
+        const apiB64 = urlParams.get('api');
+        if (apiB64) API_ENDPOINT = atob(apiB64) + '/check';
+    } catch (_) {}
+
+    const userId = tg.initDataUnsafe?.user?.id || null;
 
     // ── Check button ──
     checkBtn.addEventListener('click', () => {
@@ -535,75 +476,32 @@
         showSection(inputCard);
     });
 
-    // ── Send to bot for REAL channel search ──
-    sendBtn.addEventListener('click', () => {
-        if (!lastText) return;
-        tg.sendData(JSON.stringify({ text: lastText.slice(0, 800) }));
-        tg.close();
-    });
-
-    // ── Run analysis ──
-    function runAnalysis(text) {
+    // ── Run analysis via real API ──
+    async function runAnalysis(text) {
         showSection(loadingCard);
-        setTimeout(() => {
-            lastResult = analyzeText(text);
-            saveToHistory(text, lastResult);
-            renderResult(lastResult);
-            showSection(resultCard);
-        }, 1500 + Math.random() * 500);
-    }
 
-    // ── Heuristic analysis (text-level, not channel search) ──
-    function analyzeText(text) {
-        const t = text.toLowerCase();
-        const len = text.length;
-
-        const alarmWords   = ['сенсация','срочно','внимание','шок','скандал','разоблачение','эксклюзив','всё раскрыто','правда которую','скрывают','сенсационно'];
-        const fakeWords    = ['анонимный источник','по слухам','якобы','непроверенная','по слухам','ходят слухи','источник в','близкий к'];
-        const emotWords    = ['!!!','????','невероятно','ужас','катастрофа','конец','страшно','невозможно','ложь','позор'];
-        const credWords    = ['официально','по данным','согласно','эксперты','исследование','статистика','подтверждено','сообщает','заявил','объявил','сообщили в'];
-
-        const alarmScore = countMatches(t, alarmWords);
-        const fakeScore  = countMatches(t, fakeWords);
-        const emotScore  = countMatches(t, emotWords) + (text.split('!').length - 1) * 0.4;
-        const credScore  = countMatches(t, credWords);
-
-        const manipRaw   = Math.min(1, alarmScore * 0.14 + fakeScore * 0.18 + emotScore * 0.07);
-        const credRaw    = Math.max(0, Math.min(1, 0.52 + credScore * 0.07 - manipRaw * 0.55 + (len > 300 ? 0.08 : 0)));
-        const emotRaw    = Math.min(1, emotScore * 0.11 + manipRaw * 0.28);
-
-        const confidence = Math.round(credRaw * 100);
-        const manip      = Math.round(manipRaw * 100);
-        const emotion    = Math.round(emotRaw * 100);
-
-        const signals = [];
-        if (alarmScore > 0)  signals.push({ icon: '⚠️', label: 'Кликбейт' });
-        if (fakeScore > 0)   signals.push({ icon: '🕵️', label: 'Анонимные источники' });
-        if (emotScore > 2)   signals.push({ icon: '🔥', label: 'Высокий эмоциональный накал' });
-        if (credScore > 0)   signals.push({ icon: '📊', label: 'Есть ссылки на данные' });
-        if (len > 500)       signals.push({ icon: '📝', label: 'Развёрнутый текст' });
-        if (signals.length === 0) signals.push({ icon: '✅', label: 'Нет явных манипуляций' });
-
-        let verdict, verdictLabel, verdictIcon;
-        if (confidence >= 62) {
-            verdict = 'real';   verdictLabel = 'Вероятно правда'; verdictIcon = '✅';
-        } else if (confidence <= 38) {
-            verdict = 'fake';   verdictLabel = 'Вероятно фейк';   verdictIcon = '❌';
-        } else {
-            verdict = 'unsure'; verdictLabel = 'Требует проверки'; verdictIcon = '⚠️';
+        if (!API_ENDPOINT) {
+            // API URL не передан — показываем подсказку
+            document.querySelector('.loading-text').textContent = '⚠️ Откройте приложение через кнопку в боте';
+            return;
         }
 
-        const summaries = {
-            real:   `Текст содержит относительно нейтральную подачу${credScore > 0 ? ' и ссылки на источники' : ''}. Манипулятивных маркеров мало (${manip}%). Для точной проверки нажмите «Найти в реальных каналах» — бот найдёт публикации в СМИ.`,
-            fake:   `Обнаружены признаки манипуляции (${manip}%): ${alarmScore > 0 ? 'кликбейт,' : ''} ${fakeScore > 0 ? 'анонимные источники,' : ''} высокая эмоциональность. Рекомендуем проверить через кнопку ниже.`,
-            unsure: `Текст содержит смешанные сигналы. Манипуляция: ${manip}%, эмоциональность: ${emotion}%. Нажмите «Найти в реальных каналах» для окончательного вывода.`,
-        };
+        try {
+            const resp = await fetch(API_ENDPOINT, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text, user_id: userId })
+            });
 
-        return { verdict, verdictLabel, verdictIcon, confidence, manip, emotion, signals, summary: summaries[verdict] };
-    }
+            if (!resp.ok) throw new Error('server error');
+            const data = await resp.json();
 
-    function countMatches(text, words) {
-        return words.reduce((n, w) => n + (text.includes(w) ? 1 : 0), 0);
+            lastResult = data;
+            saveToHistory(text, data);
+            showBotResults(data);
+        } catch (e) {
+            document.querySelector('.loading-text').textContent = '❌ Ошибка соединения с ботом';
+        }
     }
 
     // ── Render result ──
@@ -666,31 +564,45 @@
     // ── Sources back button ──
     sourcesBackBtn.addEventListener('click', () => showSection(inputCard));
 
-    // ── Show sources from bot (via URL param ?r=BASE64) ──
+    // ── Show sources from bot ──
     function showBotResults(payload) {
         const colors = { high: '#22C55E', mid: '#F59E0B', low: '#EF4444' };
+        const top = payload.top_score ?? 0;
+        const sources = payload.sources ?? [];
 
-        document.getElementById('sourcesTopScore').textContent = payload.top + '%';
-        document.getElementById('sourcesTopScore').style.color =
-            payload.top >= 70 ? colors.high : payload.top >= 50 ? colors.mid : colors.low;
+        const topEl = document.getElementById('sourcesTopScore');
+        const topWrap = document.querySelector('.sources-top-score');
 
-        const list = document.getElementById('sourcesList');
-        list.innerHTML = payload.sources.map(s => {
-            const color = s.s >= 70 ? colors.high : s.s >= 50 ? colors.mid : colors.low;
-            return `
-                <div class="source-item">
-                    <div class="source-left">
-                        <div class="source-channel">${s.c}</div>
-                        <div class="source-score-bar-wrap">
-                            <div class="source-score-mini-bar">
-                                <div class="source-score-mini-fill" style="width:${s.s}%;background:${color}"></div>
+        if (sources.length === 0) {
+            topEl.textContent = '0%';
+            topEl.style.color = colors.low;
+            topWrap.style.background = 'rgba(239,68,68,.08)';
+            topWrap.style.borderColor = 'rgba(239,68,68,.2)';
+            document.getElementById('sourcesList').innerHTML =
+                '<div style="text-align:center;color:var(--hint);padding:24px 0;font-size:14px;">❌ Подтверждений в каналах не найдено</div>';
+        } else {
+            topEl.textContent = top + '%';
+            topEl.style.color = top >= 70 ? colors.high : top >= 50 ? colors.mid : colors.low;
+            topWrap.style.background = top >= 70 ? 'rgba(34,197,94,.08)' : 'rgba(245,158,11,.08)';
+            topWrap.style.borderColor = top >= 70 ? 'rgba(34,197,94,.2)' : 'rgba(245,158,11,.2)';
+
+            document.getElementById('sourcesList').innerHTML = sources.map(s => {
+                const color = s.s >= 70 ? colors.high : s.s >= 50 ? colors.mid : colors.low;
+                return `
+                    <div class="source-item">
+                        <div class="source-left">
+                            <div class="source-channel">${s.c}</div>
+                            <div class="source-score-bar-wrap">
+                                <div class="source-score-mini-bar">
+                                    <div class="source-score-mini-fill" style="width:${s.s}%;background:${color}"></div>
+                                </div>
+                                <span class="source-score-pct">${s.s}%</span>
                             </div>
-                            <span class="source-score-pct">${s.s}%</span>
                         </div>
-                    </div>
-                    <a class="source-link-btn" href="${s.l}" target="_blank">Открыть</a>
-                </div>`;
-        }).join('');
+                        <a class="source-link-btn" href="${s.l}" target="_blank">Открыть</a>
+                    </div>`;
+            }).join('');
+        }
 
         showSection(sourcesCard);
     }

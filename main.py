@@ -6,6 +6,7 @@ import logging
 import ollama
 import json  # Добавили для работы с файлом
 import base64
+from aiohttp import web
 from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from dotenv import load_dotenv
@@ -22,6 +23,8 @@ load_dotenv()
 API_ID = int(os.getenv('API_ID'))
 API_HASH = os.getenv('API_HASH')
 BOT_TOKEN = os.getenv('BOT_TOKEN')
+API_URL = os.getenv('API_URL', '')          # ngrok URL, например https://abc.ngrok.io
+WEBAPP_BASE = "https://edvart08.github.io/news-checker-app/?v=2"
 
 # Твои основные каналы
 BASE_SOURCES = [
@@ -196,10 +199,13 @@ async def search_in_channels(original_text, channels_to_search, regional_channel
 
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
+    api_param = ""
+    if API_URL:
+        api_param = "&api=" + base64.b64encode(API_URL.encode()).decode()
     builder = ReplyKeyboardBuilder()
     builder.button(
         text="🚀 Открыть NewsChecker",
-        web_app=WebAppInfo(url="https://edvart08.github.io/news-checker-app/?v=2")
+        web_app=WebAppInfo(url=WEBAPP_BASE + api_param)
     )
     builder.button(text="❓ Инструкция")
     builder.adjust(1)
@@ -427,11 +433,77 @@ async def handle_news(message: types.Message):
         await status.edit_text("❌ <b>Произошла ошибка при анализе</b>", parse_mode="HTML")
 
 
+async def handle_check(request):
+    # CORS preflight
+    if request.method == 'OPTIONS':
+        return web.Response(headers={
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type',
+        })
+    try:
+        data = await request.json()
+        text = data.get('text', '').strip()
+        user_id = data.get('user_id')
+
+        if len(text) < 25:
+            return web.json_response({'error': 'too_short'}, status=400,
+                headers={'Access-Control-Allow-Origin': '*'})
+
+        user_region = user_settings.get(int(user_id)) if user_id else None
+        regional_channels = REGIONAL_SOURCES.get(user_region, []) if user_region else []
+        current_sources = BASE_SOURCES.copy() + regional_channels
+
+        results = await search_in_channels(text, current_sources, regional_channels=regional_channels)
+
+        final = []
+        if results:
+            async def verify_wrapper(r):
+                if r['score'] >= 90:
+                    return r
+                try:
+                    verified = await ai_verify_with_image(text, r['text'])
+                    return r if verified else None
+                except Exception:
+                    return r
+
+            checked = await asyncio.gather(*(verify_wrapper(r) for r in results))
+            final = [r for r in checked if r is not None]
+            final.sort(key=lambda x: x['score'], reverse=True)
+
+        top_score = min(int(final[0]['score']), 100) if final else 0
+        sources_out = [
+            {"c": r["ch"], "s": min(int(r["score"]), 100), "l": r["link"]}
+            for r in final[:8]
+        ]
+
+        return web.json_response(
+            {'sources': sources_out, 'top_score': top_score},
+            headers={'Access-Control-Allow-Origin': '*'}
+        )
+    except Exception as e:
+        logging.error(f"API /check error: {e}")
+        return web.json_response({'error': str(e)}, status=500,
+            headers={'Access-Control-Allow-Origin': '*'})
+
+
+async def start_web_server():
+    app = web.Application()
+    app.router.add_post('/check', handle_check)
+    app.router.add_route('OPTIONS', '/check', handle_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, '0.0.0.0', 8080)
+    await site.start()
+    logging.info("API server started on :8080")
+
+
 async def main():
     global telethon_client
     proxy = (socks.SOCKS5, PROXY_HOST, SOCKS_PORT)
     telethon_client = TelegramClient('user_session', API_ID, API_HASH, proxy=proxy)
     await telethon_client.start()
+    await start_web_server()
     await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
