@@ -389,12 +389,17 @@
         history.unshift({
             id: Date.now(),
             text: text.slice(0, 120),
+            fullText: text.slice(0, 800),
             verdict: result.verdict,
             verdictLabel: result.verdictLabel,
+            verdictIcon: result.verdictIcon,
             confidence: result.confidence,
+            manip: result.manip,
+            emotion: result.emotion,
+            signals: result.signals,
+            summary: result.summary,
             date: new Date().toLocaleString('ru', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })
         });
-        // keep last 20
         localStorage.setItem('nc_history', JSON.stringify(history.slice(0, 20)));
     }
 
@@ -405,8 +410,8 @@
             return;
         }
         const verdictIcons = { real: '✅', fake: '❌', unsure: '⚠️' };
-        historyList.innerHTML = history.map(item => `
-            <div class="history-item" data-text="${encodeURIComponent(item.text)}">
+        historyList.innerHTML = history.map((item, idx) => `
+            <div class="history-item" data-idx="${idx}">
                 <div class="history-item-top">
                     <div class="history-item-verdict ${item.verdict}">
                         ${verdictIcons[item.verdict] || ''} ${item.verdictLabel}
@@ -420,13 +425,15 @@
             </div>
         `).join('');
 
+        const history2 = loadHistory();
         historyList.querySelectorAll('.history-item').forEach(el => {
             el.addEventListener('click', () => {
-                const text = decodeURIComponent(el.dataset.text);
-                newsText.value = text;
-                charCount.textContent = `${text.length} / 3000`;
+                const item = history2[parseInt(el.dataset.idx)];
+                lastText = item.fullText || item.text;
+                lastResult = item;
                 toggleHistory(false);
-                runAnalysis(text);
+                renderResult(item);
+                showSection(resultCard);
             });
         });
     }

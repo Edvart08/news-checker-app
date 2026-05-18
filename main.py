@@ -12,6 +12,7 @@ from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.client.session.aiohttp import AiohttpSession
 from telethon import TelegramClient
+from telethon.tl.functions.channels import JoinChannelRequest
 from rapidfuzz import fuzz
 
 logging.basicConfig(level=logging.INFO)
@@ -158,6 +159,12 @@ async def search_in_channels(original_text, channels_to_search, regional_channel
         threshold = REGIONAL_THRESHOLD if is_regional else GLOBAL_THRESHOLD
 
         try:
+            # Подписываемся если ещё не состоим — иначе Telethon не ищет сообщения
+            try:
+                await telethon_client(JoinChannelRequest(channel))
+            except Exception:
+                pass
+
             messages = []
             async for m in telethon_client.iter_messages(channel, search=short_query, limit=5):
                 messages.append(m)
@@ -198,7 +205,7 @@ async def cmd_start(message: types.Message):
     builder = ReplyKeyboardBuilder()
     builder.button(
         text="🚀 Открыть NewsChecker",
-        web_app=WebAppInfo(url="https://edvart08.github.io/news-checker-app/")
+        web_app=WebAppInfo(url="https://edvart08.github.io/news-checker-app/?v=2")
     )
     builder.button(text="❓ Инструкция")
     builder.adjust(1)
