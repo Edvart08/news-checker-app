@@ -5,14 +5,14 @@ import socks
 import logging
 import ollama
 import json  # Добавили для работы с файлом
-from aiogram.types import WebAppInfo # Добавляем импорт
+import base64
+from aiogram.types import WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from dotenv import load_dotenv
 from aiogram import Bot, Dispatcher, types
 from aiogram.filters import Command
 from aiogram.client.session.aiohttp import AiohttpSession
 from telethon import TelegramClient
-from telethon.tl.functions.channels import JoinChannelRequest
 from rapidfuzz import fuzz
 
 logging.basicConfig(level=logging.INFO)
@@ -159,12 +159,6 @@ async def search_in_channels(original_text, channels_to_search, regional_channel
         threshold = REGIONAL_THRESHOLD if is_regional else GLOBAL_THRESHOLD
 
         try:
-            # Подписываемся если ещё не состоим — иначе Telethon не ищет сообщения
-            try:
-                await telethon_client(JoinChannelRequest(channel))
-            except Exception:
-                pass
-
             messages = []
             async for m in telethon_client.iter_messages(channel, search=short_query, limit=5):
                 messages.append(m)
@@ -315,24 +309,32 @@ async def handle_web_app_data(message: types.Message):
 
         final.sort(key=lambda x: x['score'], reverse=True)
         top_score = min(int(final[0]['score']), 100)
+
+        # Кодируем результаты для передачи в мини-апп
+        sources_compact = [
+            {"c": r["ch"], "s": min(int(r["score"]), 100), "l": r["link"]}
+            for r in final[:8]
+        ]
+        payload = base64.b64encode(json.dumps(
+            {"sources": sources_compact, "top": top_score}, ensure_ascii=False
+        ).encode()).decode()
+
+        webapp_url = f"https://edvart08.github.io/news-checker-app/?v=2&r={payload}"
+
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text=f"📊 Открыть результаты ({len(final)} источника)",
+                web_app=WebAppInfo(url=webapp_url)
+            )
+        ]])
+
         bar = "🟩" * (top_score // 10) + "⬜" * (10 - top_score // 10)
-
-        sources_links = ""
-        for r in final:
-            emoji = "🟢" if r['score'] >= 80 else "🟡"
-            sources_links += f"{emoji} <a href='{r['link']}'>{r['ch']}</a> — <b>{int(r['score'])}%</b>\n"
-
         await status.edit_text(
-            f"📑 <b>ОТЧЕТ О ВЕРИФИКАЦИИ</b>\n"
-            f"<code>━━━━━━━━━━━━━━━━━━━━</code>\n\n"
-            f"<b>Достоверность: {top_score}%</b>\n"
-            f"[{bar}]\n\n"
-            f"✅ <b>Найдено подтверждений: {len(final)}</b>\n"
-            f"{sources_links}\n"
-            f"<code>━━━━━━━━━━━━━━━━━━━━</code>\n"
-            f"👉 <i>Нажмите на источник, чтобы прочитать оригинал.</i>",
+            f"✅ <b>Найдено {len(final)} подтверждений!</b>\n"
+            f"<b>Достоверность: {top_score}%</b>  [{bar}]\n\n"
+            f"Нажмите кнопку ниже, чтобы открыть источники в приложении.",
             parse_mode="HTML",
-            disable_web_page_preview=True
+            reply_markup=keyboard
         )
 
     except Exception as e:
