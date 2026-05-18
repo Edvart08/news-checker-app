@@ -29,16 +29,15 @@ WEBAPP_BASE = "https://edvart08.github.io/news-checker-app/?v=2"
 # Твои основные каналы
 BASE_SOURCES = [
     # Федеральные
-    '@rian_ru', '@rbc_news', '@tass_agency', '@interfax_russia',
-    '@kommersant', '@izvestia', '@gazeta_ru',
+    '@rian_ru', '@rbc_news', '@tass_agency',
+    '@kommersant', '@izvestia',
     # Агрегаторы/быстрые
     '@mash', '@readovkanews', '@toporlive', '@moscowach',
     '@smi_rf_moskva', '@novosti_efir', '@shot_shot',
     # Спорт
     '@news_matchtv', '@championat', '@sport_express_news',
-    '@russiafootball', '@ftbl',
     # Общественно-политические
-    '@fontanka_spb', '@the_insider_russia', '@baza_plus',
+    '@fontanka_spb', '@baza_plus',
 ]
 
 
@@ -138,8 +137,8 @@ async def ai_verify_with_image(original_text, candidate_text, image_bytes=None):
         return False
 
 
-GLOBAL_THRESHOLD = 65   # Для федеральных СМИ — строже
-REGIONAL_THRESHOLD = 55  # Для региональных — мягче
+GLOBAL_THRESHOLD = 50
+REGIONAL_THRESHOLD = 45
 
 async def search_in_channels(original_text, channels_to_search, regional_channels=None):
     found_info = []
@@ -163,11 +162,12 @@ async def search_in_channels(original_text, channels_to_search, regional_channel
 
         try:
             messages = []
-            async for m in telethon_client.iter_messages(channel, search=short_query, limit=5):
+            async for m in telethon_client.iter_messages(channel, search=short_query, limit=10):
                 messages.append(m)
             if not messages:
-                async for m in telethon_client.iter_messages(channel, limit=15):
+                async for m in telethon_client.iter_messages(channel, limit=50):
                     messages.append(m)
+            logging.info(f"[SEARCH] {channel}: {len(messages)} msgs (query='{short_query}')")
 
             for message in messages:
                 msg_text = message.text
@@ -197,15 +197,18 @@ async def search_in_channels(original_text, channels_to_search, regional_channel
 
 # --- ХЕНДЛЕРЫ ---
 
+def make_webapp_url(user_id: int) -> str:
+    if not API_URL:
+        return WEBAPP_BASE
+    payload = f"{API_URL}|{user_id}"
+    return WEBAPP_BASE + "&api=" + base64.b64encode(payload.encode()).decode()
+
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
-    api_param = ""
-    if API_URL:
-        api_param = "&api=" + base64.b64encode(API_URL.encode()).decode()
     builder = ReplyKeyboardBuilder()
     builder.button(
         text="🚀 Открыть NewsChecker",
-        web_app=WebAppInfo(url=WEBAPP_BASE + api_param)
+        web_app=WebAppInfo(url=make_webapp_url(message.from_user.id))
     )
     builder.button(text="❓ Инструкция")
     builder.adjust(1)
@@ -257,8 +260,13 @@ async def set_region_smart(message: types.Message):
         user_settings[message.from_user.id] = region
         save_settings(user_settings)
         builder = ReplyKeyboardBuilder()
+        builder.button(
+            text="🚀 Открыть NewsChecker",
+            web_app=WebAppInfo(url=make_webapp_url(message.from_user.id))
+        )
         builder.button(text="📍 Выбрать регион")
         builder.button(text="❓ Инструкция")
+        builder.adjust(1)
         await message.answer(f"✅ Настройка завершена!\nТекущий регион: <b>{region.capitalize()}</b>",
                              parse_mode="HTML", reply_markup=builder.as_markup(resize_keyboard=True))
     else:
@@ -450,11 +458,13 @@ async def handle_check(request):
             return web.json_response({'error': 'too_short'}, status=400,
                 headers={'Access-Control-Allow-Origin': '*'})
 
-        user_region = user_settings.get(int(user_id)) if user_id else None
+        user_region = user_settings.get(int(user_id)) if user_id and str(user_id) != 'None' else None
         regional_channels = REGIONAL_SOURCES.get(user_region, []) if user_region else []
         current_sources = BASE_SOURCES.copy() + regional_channels
 
+        logging.info(f"[API] user_id={user_id} region={user_region} channels={len(current_sources)} query_len={len(text)}")
         results = await search_in_channels(text, current_sources, regional_channels=regional_channels)
+        logging.info(f"[API] raw results={len(results)}")
 
         final = []
         if results:

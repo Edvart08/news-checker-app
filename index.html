@@ -340,7 +340,7 @@
     const checkBtn      = document.getElementById('checkBtn');
     const inputCard     = document.getElementById('inputCard');
     const loadingCard   = document.getElementById('loadingCard');
-    const resetBtn      = document.getElementById('resetBtn');
+    const resetBtn      = null; // элемент удалён из DOM
     const historyPanel  = document.getElementById('historyPanel');
     const historyToggleBtn = document.getElementById('historyToggleBtn');
     const clearHistoryBtn  = document.getElementById('clearHistoryBtn');
@@ -447,15 +447,21 @@
         if (section !== loadingCard) section.classList.add('fade-in');
     }
 
-    // ── Read API URL from ?api= param (passed by bot) ──
+    // ── Read API URL + user_id from ?api= param (passed by bot as "URL|user_id") ──
     const urlParams = new URLSearchParams(window.location.search);
     let API_ENDPOINT = null;
+    let userId = null;
     try {
         const apiB64 = urlParams.get('api');
-        if (apiB64) API_ENDPOINT = atob(apiB64) + '/check';
-    } catch (_) {}
-
-    const userId = tg.initDataUnsafe?.user?.id || null;
+        if (apiB64) {
+            const decoded = atob(apiB64);
+            const parts = decoded.split('|');
+            API_ENDPOINT = parts[0] + '/check';
+            userId = parts[1] || tg.initDataUnsafe?.user?.id || null;
+        }
+    } catch (_) {
+        userId = tg.initDataUnsafe?.user?.id || null;
+    }
 
     // ── Check button ──
     checkBtn.addEventListener('click', () => {
@@ -471,10 +477,6 @@
         runAnalysis(text);
     });
 
-    resetBtn.addEventListener('click', () => {
-        lastResult = null;
-        showSection(inputCard);
-    });
 
     // ── Run analysis via real API ──
     async function runAnalysis(text) {
