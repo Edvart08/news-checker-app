@@ -439,7 +439,9 @@
             <div class="sources-top-score-val" id="sourcesTopScore">—</div>
         </div>
         <div id="sourcesList"></div>
-        <button class="btn btn-secondary" id="sourcesBackBtn" style="margin-top:4px;">
+        <!-- Explanation block -->
+        <div class="analysis-text" id="explanationText" style="display:none;margin-top:4px;"></div>
+        <button class="btn btn-secondary" id="sourcesBackBtn" style="margin-top:8px;">
             ↩ Назад
         </button>
     </div>
@@ -514,6 +516,7 @@
             verdictLabel,
             confidence: top,
             sources: result.sources || [],
+            explanation: result.explanation || null,
             date: new Date().toLocaleString('ru', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' })
         });
         localStorage.setItem('nc_history', JSON.stringify(history.slice(0, 20)));
@@ -548,7 +551,7 @@
                 lastText = item.fullText || item.text;
                 lastResult = item;
                 toggleHistory(false);
-                showBotResults({ sources: item.sources || [], top_score: item.confidence });
+                showBotResults({ sources: item.sources || [], top_score: item.confidence, explanation: item.explanation || null });
             });
         });
     }
@@ -801,9 +804,11 @@
         const colors = { high: '#22C55E', mid: '#F59E0B', low: '#EF4444' };
         const top = payload.top_score ?? 0;
         const sources = payload.sources ?? [];
+        const explanation = payload.explanation || null;
 
         const topEl = document.getElementById('sourcesTopScore');
         const topWrap = document.querySelector('.sources-top-score');
+        const explanationEl = document.getElementById('explanationText');
 
         if (sources.length === 0) {
             topEl.textContent = '0%';
@@ -834,6 +839,14 @@
                         <a class="source-link-btn" href="${s.l}" target="_blank">Открыть</a>
                     </div>`;
             }).join('');
+        }
+
+        // Показываем объяснение если есть
+        if (explanation) {
+            explanationEl.innerHTML = '💬 ' + explanation;
+            explanationEl.style.display = 'block';
+        } else {
+            explanationEl.style.display = 'none';
         }
 
         showSection(sourcesCard);
