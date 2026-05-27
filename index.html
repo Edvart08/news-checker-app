@@ -537,7 +537,7 @@
             const parts = decoded.split('|');
             API_ENDPOINT = parts[0] + '/check';
             userId = parts[1] || tg.initDataUnsafe?.user?.id || null;
-            userRegion = parts[2] || null;
+            userRegion = parts[2] ? decodeURIComponent(parts[2]) : null;
         }
     } catch (_) {
         userId = tg.initDataUnsafe?.user?.id || null;
@@ -564,10 +564,9 @@
         instructionCard.style.display = 'none';
     });
 
-    // ── Change region — opens bot deeplink ──
+    // ── Change region — opens bot ──
     document.getElementById('changeRegionBtn').addEventListener('click', () => {
-        tg.openTelegramLink?.('https://t.me/NewsCheccker_bot?start=region') ||
-        window.open('https://t.me/NewsCheccker_bot', '_blank');
+        tg.close();
     });
 
     // ── Check button ──
