@@ -240,6 +240,52 @@
             text-transform: uppercase; letter-spacing: .9px; margin-bottom: 10px;
         }
 
+        /* ── Region screen ── */
+        .region-screen { display: none; flex-direction: column; gap: 12px; }
+        .region-search-wrap { position: relative; }
+        .region-search {
+            width: 100%;
+            background: rgba(255,255,255,.05);
+            border: 1.5px solid rgba(255,255,255,.1);
+            border-radius: 10px;
+            color: var(--text);
+            padding: 10px 14px 10px 36px;
+            font-size: 14px; font-family: inherit;
+            outline: none;
+            transition: border-color .2s;
+        }
+        .region-search:focus { border-color: var(--accent); }
+        .region-search::placeholder { color: var(--hint); }
+        .region-search-icon {
+            position: absolute; left: 11px; top: 50%;
+            transform: translateY(-50%);
+            font-size: 15px; pointer-events: none;
+        }
+        .region-grid {
+            display: flex; flex-wrap: wrap; gap: 8px;
+            max-height: 55vh; overflow-y: auto;
+            padding-right: 2px;
+        }
+        .region-btn {
+            padding: 8px 14px;
+            border-radius: 999px;
+            background: rgba(255,255,255,.06);
+            border: 1.5px solid rgba(255,255,255,.09);
+            color: var(--text);
+            font-size: 13px; font-weight: 500;
+            cursor: pointer;
+            transition: background .2s, border-color .2s;
+        }
+        .region-btn:active { opacity: .7; }
+        .region-btn.selected {
+            background: rgba(59,130,246,.2);
+            border-color: var(--accent);
+            color: var(--accent);
+            font-weight: 700;
+        }
+        .region-btn.hidden { display: none; }
+        .region-none { font-size: 13px; color: var(--hint); padding: 8px 0; display: none; }
+
         /* ── History panel ── */
         .history-panel {
             display: none; flex-direction: column; gap: 0;
@@ -398,6 +444,20 @@
         </button>
     </div>
 
+    <!-- Region screen -->
+    <div class="card region-screen" id="regionScreen">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+            <div style="font-size:15px;font-weight:700;">📍 Выбор региона</div>
+            <button class="region-mini-btn" id="regionBackBtn">← Назад</button>
+        </div>
+        <div class="region-search-wrap">
+            <span class="region-search-icon">🔍</span>
+            <input class="region-search" id="regionSearch" placeholder="Поиск региона…" autocomplete="off">
+        </div>
+        <div class="region-grid" id="regionGrid"></div>
+        <div class="region-none" id="regionNone">Ничего не найдено</div>
+    </div>
+
     <!-- History panel -->
     <div class="card history-panel" id="historyPanel">
         <div class="history-header">
@@ -517,7 +577,7 @@
 
     // ── Show / hide sections ──
     function showSection(section) {
-        [inputCard, loadingCard, sourcesCard, historyPanel].forEach(el => {
+        [inputCard, loadingCard, sourcesCard, historyPanel, regionScreen].forEach(el => {
             el.style.display = 'none';
         });
         section.style.display = 'flex';
@@ -564,10 +624,74 @@
         instructionCard.style.display = 'none';
     });
 
-    // ── Change region — opens bot ──
-    document.getElementById('changeRegionBtn').addEventListener('click', () => {
-        tg.close();
+    // ── Region screen ──
+    const REGIONS = [
+        'Башкортостан','Белгород','Владивосток','Волгоград','Воронеж',
+        'Дагестан','Екатеринбург','Иркутск','Калининград','Краснодар',
+        'Красноярск','Крым','Москва','Нижний Новгород','Новосибирск',
+        'Омск','Осетия','Пермь','Питер','Ростов','Самара','Саратов',
+        'Татарстан','Тюмень','Хабаровск','Челябинск','Чечня','Якутия'
+    ];
+
+    const regionScreen  = document.getElementById('regionScreen');
+    const regionGrid    = document.getElementById('regionGrid');
+    const regionSearch  = document.getElementById('regionSearch');
+    const regionNone    = document.getElementById('regionNone');
+
+    // Build buttons
+    REGIONS.forEach(r => {
+        const btn = document.createElement('button');
+        btn.className = 'region-btn' + (userRegion && userRegion.toLowerCase() === r.toLowerCase() ? ' selected' : '');
+        btn.textContent = r;
+        btn.dataset.region = r.toLowerCase();
+        btn.addEventListener('click', () => selectRegion(r.toLowerCase()));
+        regionGrid.appendChild(btn);
     });
+
+    // Search filter
+    regionSearch.addEventListener('input', () => {
+        const q = regionSearch.value.toLowerCase().trim();
+        let visible = 0;
+        regionGrid.querySelectorAll('.region-btn').forEach(btn => {
+            const match = btn.dataset.region.startsWith(q) || btn.textContent.toLowerCase().includes(q);
+            btn.classList.toggle('hidden', !match);
+            if (match) visible++;
+        });
+        regionNone.style.display = visible === 0 ? 'block' : 'none';
+    });
+
+    async function selectRegion(region) {
+        userRegion = region;
+        // Update UI
+        regionBarVal.textContent = region.charAt(0).toUpperCase() + region.slice(1);
+        regionBarVal.style.color = 'var(--text)';
+        // Mark selected
+        regionGrid.querySelectorAll('.region-btn').forEach(btn => {
+            btn.classList.toggle('selected', btn.dataset.region === region);
+        });
+        // Save via API
+        if (API_ENDPOINT && userId) {
+            try {
+                await fetch(API_ENDPOINT.replace('/check', '/set-region'), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: userId, region })
+                });
+            } catch (_) {}
+        }
+        // Back to input
+        showSection(inputCard);
+    }
+
+    function showRegionScreen() {
+        regionSearch.value = '';
+        regionGrid.querySelectorAll('.region-btn').forEach(btn => btn.classList.remove('hidden'));
+        regionNone.style.display = 'none';
+        showSection(regionScreen);
+    }
+
+    document.getElementById('changeRegionBtn').addEventListener('click', showRegionScreen);
+    document.getElementById('regionBackBtn').addEventListener('click', () => showSection(inputCard));
 
     // ── Check button ──
     checkBtn.addEventListener('click', () => {
